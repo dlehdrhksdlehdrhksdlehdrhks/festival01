@@ -8,10 +8,11 @@ import { CalendarView } from './components/CalendarView';
 import { MapView } from './components/MapView';
 import { ListView } from './components/ListView';
 import { checkDateMatch } from './utils/dateUtils';
+import { FALLBACK_FESTIVALS } from './data/fallbackFestivals';
 import { Sparkles, MapPin, Calendar, Heart, Layers, AlertCircle, RefreshCw } from 'lucide-react';
 
 export default function App() {
-  const [festivals, setFestivals] = useState<FestivalItem[]>([]);
+  const [festivals, setFestivals] = useState<FestivalItem[]>(FALLBACK_FESTIVALS);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [dataSource, setDataSource] = useState<'api' | 'fallback' | 'loading'>('loading');
@@ -49,14 +50,20 @@ export default function App() {
 
     try {
       const res = await fetch('/api/festivals');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
 
-      if (json.data && Array.isArray(json.data)) {
+      if (json.data && Array.isArray(json.data) && json.data.length > 0) {
         setFestivals(json.data);
         setDataSource(json.source || 'api');
+      } else {
+        setFestivals(FALLBACK_FESTIVALS);
+        setDataSource('fallback');
       }
     } catch (err) {
-      console.error('Failed to fetch festivals:', err);
+      console.warn('Failed to fetch festivals from API, using fallback data:', err);
+      setFestivals(FALLBACK_FESTIVALS);
+      setDataSource('fallback');
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -206,8 +213,35 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10 space-y-6">
         
+        {/* API Connection Warning Banner when using Fallback Data */}
+        {!isLoading && dataSource === 'fallback' && (
+          <div className="bg-amber-500/15 border border-amber-500/30 backdrop-blur-md rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-200 text-xs shadow-lg animate-in fade-in duration-300">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-amber-500/20 rounded-xl text-amber-300 shrink-0 border border-amber-500/30">
+                <AlertCircle className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="font-bold text-amber-300 block text-xs sm:text-sm">
+                  공공데이터 API 연결 실패 (추천 데이터 모드 동작 중)
+                </span>
+                <span className="text-amber-200/80">
+                  공공데이터포털(data.go.kr) API 수신이 원활하지 않아 준비된 부산 대표 축제 추천 데이터를 표시하고 있습니다.
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => fetchFestivals(true)}
+              disabled={isRefreshing}
+              className="px-3.5 py-1.5 rounded-xl bg-amber-400 text-slate-950 font-bold hover:bg-amber-300 transition-all shrink-0 flex items-center gap-1.5 shadow-md disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              API 재연동 시도
+            </button>
+          </div>
+        )}
+
         {/* Loading Spinner */}
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-24 space-y-4 bg-slate-900/30 backdrop-blur-xl rounded-3xl border border-white/10 my-8">
@@ -216,8 +250,31 @@ export default function App() {
               부산 지역 축제 및 행사 정보를 불러오는 중입니다...
             </p>
           </div>
+        ) : festivals.length === 0 ? (
+          /* Total Data Fetch Failure State */
+          <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-white/10 p-12 text-center max-w-xl mx-auto my-8 space-y-4 shadow-2xl">
+            <div className="w-16 h-16 bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-full flex items-center justify-center mx-auto">
+              <AlertCircle className="w-8 h-8" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-lg font-bold text-white">
+                축제 데이터를 불러올 수 없습니다.
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                네트워크 연결 상태를 확인하시거나 공공데이터 API 서버 상태를 점검해 보세요.<br />
+                아래 버튼을 눌러 데이터를 다시 요청할 수 있습니다.
+              </p>
+            </div>
+            <button
+              onClick={() => fetchFestivals(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold text-xs shadow-lg shadow-cyan-500/20 hover:from-cyan-400 hover:to-blue-500 transition-all"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              데이터 다시 불러오기
+            </button>
+          </div>
         ) : filteredFestivals.length === 0 ? (
-          /* Empty Search State */
+          /* Empty Search / Filter State */
           <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-white/10 p-12 text-center max-w-xl mx-auto my-8 space-y-4 shadow-2xl">
             <div className="w-16 h-16 bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-full flex items-center justify-center mx-auto">
               <AlertCircle className="w-8 h-8" />
