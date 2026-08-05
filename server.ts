@@ -102,7 +102,12 @@ async function startServer() {
   // API endpoint for Busan Festival data
   app.get('/api/festivals', async (req, res) => {
     try {
-      const rawServiceKey = process.env.BUSAN_FESTIVAL_SERVICE_KEY || DEFAULT_SERVICE_KEY;
+      const rawServiceKey =
+        process.env.BUSAN_FESTIVAL_SERVICE_KEY ||
+        process.env.PUBLIC_DATA_API_KEY ||
+        process.env.SERVICE_KEY ||
+        process.env.VITE_BUSAN_FESTIVAL_SERVICE_KEY ||
+        DEFAULT_SERVICE_KEY;
       
       // Data.go.kr API might require decoded serviceKey or exact key string
       let serviceKey = rawServiceKey;
