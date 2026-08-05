@@ -1,0 +1,6 @@
+{
+  "name": "부산 축제 정보",
+  "description": "부산 지역의 축제 및 행사 정보를 지역별, 날짜별로 조회하고 안내하는 웹 앱",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
