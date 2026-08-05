@@ -1,7 +1,7 @@
 import { FALLBACK_FESTIVALS } from '../src/data/fallbackFestivals';
 import { FestivalItem, RawFestivalItem, FestivalStatus } from '../src/types';
 
-// Default service key provided by user if env var is not explicitly set
+// Default backup key if no user env var is set
 const DEFAULT_SERVICE_KEY = 'q3e4QbwXW%2Fto8HK95PCVl%2BE9YtSajlZDOXgS3P%2F6v2U6Tb%2BnGAHP%2BzQRMehofJi29FiazWuU6qaLn6TwRGsCiA%3D%3D';
 
 function parseFestivalDates(usageDayStr: string): { startDate?: string; endDate?: string } {
@@ -86,56 +86,108 @@ function normalizeRawItem(raw: RawFestivalItem, index: number): FestivalItem {
   };
 }
 
+// Collect all supported key names from process.env
+function getServiceKeyCandidates(): string[] {
+  const possibleEnvNames = [
+    process.env.BUSAN_FESTIVAL_SERVICE_KEY,
+    process.env.PUBLIC_DATA_API_KEY,
+    process.env.SERVICE_KEY,
+    process.env.API_KEY,
+    process.env.BUSAN_API_KEY,
+    process.env.DATA_GO_KR_KEY,
+    process.env.PUBLIC_API_KEY,
+    process.env.VITE_BUSAN_FESTIVAL_SERVICE_KEY,
+    process.env.VITE_PUBLIC_DATA_API_KEY,
+    process.env.VITE_SERVICE_KEY,
+    process.env.VITE_API_KEY,
+    process.env.NEXT_PUBLIC_BUSAN_FESTIVAL_SERVICE_KEY,
+    process.env.NEXT_PUBLIC_PUBLIC_DATA_API_KEY,
+    process.env.NEXT_PUBLIC_SERVICE_KEY,
+    process.env.NEXT_PUBLIC_API_KEY,
+    DEFAULT_SERVICE_KEY,
+  ];
+
+  const keys: string[] = [];
+  for (const v of possibleEnvNames) {
+    if (v && typeof v === 'string' && v.trim() !== '' && !keys.includes(v.trim())) {
+      keys.push(v.trim());
+    }
+  }
+  return keys;
+}
+
+async function fetchFromDataGoKr(): Promise<{ items: RawFestivalItem[]; keyUsed: string } | null> {
+  const candidateKeys = getServiceKeyCandidates();
+
+  for (const rawKey of candidateKeys) {
+    const urlVariants: string[] = [];
+
+    // 1. Raw Key (for URL-encoded keys like '...%2F...')
+    urlVariants.push(`https://apis.data.go.kr/6260000/FestivalService/getFestivalKr?serviceKey=${rawKey}&pageNo=1&numOfRows=150&resultType=json`);
+
+    // 2. Encoded Key (for raw decoding keys containing +, /, =)
+    try {
+      const encoded = encodeURIComponent(rawKey);
+      if (encoded !== rawKey) {
+        urlVariants.push(`https://apis.data.go.kr/6260000/FestivalService/getFestivalKr?serviceKey=${encoded}&pageNo=1&numOfRows=150&resultType=json`);
+      }
+    } catch (e) {}
+
+    // 3. Decoded then Encoded
+    try {
+      if (rawKey.includes('%')) {
+        const decoded = decodeURIComponent(rawKey);
+        const reEncoded = encodeURIComponent(decoded);
+        const url = `https://apis.data.go.kr/6260000/FestivalService/getFestivalKr?serviceKey=${reEncoded}&pageNo=1&numOfRows=150&resultType=json`;
+        if (!urlVariants.includes(url)) {
+          urlVariants.push(url);
+        }
+      }
+    } catch (e) {}
+
+    for (const apiUrl of urlVariants) {
+      try {
+        const apiResponse = await fetch(apiUrl, {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(6000),
+        });
+
+        if (apiResponse.ok) {
+          const text = await apiResponse.text();
+          if (text.includes('getFestivalKr') || text.includes('item')) {
+            const json = JSON.parse(text);
+            const items = json?.getFestivalKr?.item;
+            if (Array.isArray(items) && items.length > 0) {
+              return { items, keyUsed: rawKey };
+            }
+          }
+        }
+      } catch (err) {
+        // Try next URL variant
+      }
+    }
+  }
+
+  return null;
+}
+
 export default async function handler(req: any, res: any) {
   try {
-    const rawServiceKey =
-      process.env.BUSAN_FESTIVAL_SERVICE_KEY ||
-      process.env.PUBLIC_DATA_API_KEY ||
-      process.env.SERVICE_KEY ||
-      process.env.VITE_BUSAN_FESTIVAL_SERVICE_KEY ||
-      DEFAULT_SERVICE_KEY;
-
-    let serviceKey = rawServiceKey;
-    try {
-      if (rawServiceKey.includes('%')) {
-        serviceKey = decodeURIComponent(rawServiceKey);
-      }
-    } catch (e) {
-      serviceKey = rawServiceKey;
-    }
-
-    const apiUrl = `https://apis.data.go.kr/6260000/FestivalService/getFestivalKr?serviceKey=${encodeURIComponent(serviceKey)}&pageNo=1&numOfRows=150&resultType=json`;
+    const apiResult = await fetchFromDataGoKr();
 
     let festivalItems: FestivalItem[] = [];
     let source: 'api' | 'fallback' = 'fallback';
 
-    try {
-      const apiResponse = await fetch(apiUrl, {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(6000),
-      });
-
-      if (apiResponse.ok) {
-        const text = await apiResponse.text();
-        try {
-          const json = JSON.parse(text);
-          const items = json?.getFestivalKr?.item;
-          if (Array.isArray(items) && items.length > 0) {
-            festivalItems = items.map((raw: RawFestivalItem, idx: number) => normalizeRawItem(raw, idx));
-            source = 'api';
-          }
-        } catch (e) {
-          console.warn('Response from data.go.kr was not JSON:', text.slice(0, 200));
-        }
-      }
-    } catch (fetchErr) {
-      console.warn('Fetch from data.go.kr failed:', fetchErr);
-    }
-
-    if (festivalItems.length === 0) {
+    if (apiResult && apiResult.items.length > 0) {
+      festivalItems = apiResult.items.map((raw: RawFestivalItem, idx: number) => normalizeRawItem(raw, idx));
+      source = 'api';
+    } else {
       festivalItems = [...FALLBACK_FESTIVALS];
       source = 'fallback';
-    } else {
+    }
+
+    // Ensure fallback items are present as well if needed
+    if (source === 'api') {
       const existingTitles = new Set(festivalItems.map((f) => f.title));
       for (const fbItem of FALLBACK_FESTIVALS) {
         if (!existingTitles.has(fbItem.title)) {
