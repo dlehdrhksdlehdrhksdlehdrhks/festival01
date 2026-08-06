@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Bookmark, RefreshCw, MapPin, Calendar, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Sparkles, Bookmark, RefreshCw, MapPin, Calendar, CheckCircle2, ShieldAlert, Home } from 'lucide-react';
 
 interface HeaderProps {
   totalCount: number;
@@ -83,6 +83,15 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Action Buttons */}
             <div className="flex items-center gap-2">
+              <a
+                href="https://dlehdrhksdlehdrhksdlehdrhks.github.io/AI2026/index.html"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all backdrop-blur-md bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white border border-white/10"
+                title="홈으로 이동"
+              >
+                <Home className="w-4 h-4 text-cyan-400" />
+                <span>홈</span>
+              </a>
+
               <button
                 onClick={onToggleBookmarks}
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all backdrop-blur-md ${
