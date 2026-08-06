@@ -93,6 +93,28 @@ function normalizeRawItem(raw: RawFestivalItem, index: number): FestivalItem {
   };
 }
 
+function parseXmlItems(xmlText: string): RawFestivalItem[] {
+  const items: RawFestivalItem[] = [];
+  const itemMatches = xmlText.match(/<item>([\s\S]*?)<\/item>/gi);
+  if (!itemMatches) return items;
+
+  for (const itemXml of itemMatches) {
+    const rawObj: Record<string, any> = {};
+    const inner = itemXml.replace(/^<item>/i, '').replace(/<\/item>$/i, '');
+    const tagRegex = /<([A-Za-z0-9_]+)>(?:<!\[CDATA\[([\s\S]*?)\]\]>|([\s\S]*?))<\/\1>/gi;
+    let match;
+    while ((match = tagRegex.exec(inner)) !== null) {
+      const tag = match[1];
+      const val = (match[2] !== undefined ? match[2] : match[3]).trim();
+      rawObj[tag] = val;
+    }
+    if (Object.keys(rawObj).length > 0) {
+      items.push(rawObj as RawFestivalItem);
+    }
+  }
+  return items;
+}
+
 function getServiceKeyCandidates(): string[] {
   const possibleEnvNames = [
     process.env.BUSAN_FESTIVAL_SERVICE_KEY,
@@ -133,39 +155,37 @@ async function fetchFromDataGoKr(): Promise<{ items: RawFestivalItem[]; keyUsed:
 
     // 2. Encoded Key (for raw decoding keys containing +, /, =)
     try {
-      const encoded = encodeURIComponent(rawKey);
-      if (encoded !== rawKey) {
-        urlVariants.push(`https://apis.data.go.kr/6260000/FestivalService/getFestivalKr?serviceKey=${encoded}&pageNo=1&numOfRows=150&resultType=json`);
-      }
-    } catch (e) {}
-
-    // 3. Decoded then Encoded
-    try {
-      if (rawKey.includes('%')) {
-        const decoded = decodeURIComponent(rawKey);
-        const reEncoded = encodeURIComponent(decoded);
-        const url = `https://apis.data.go.kr/6260000/FestivalService/getFestivalKr?serviceKey=${reEncoded}&pageNo=1&numOfRows=150&resultType=json`;
-        if (!urlVariants.includes(url)) {
-          urlVariants.push(url);
-        }
+      const decoded = rawKey.includes('%') ? decodeURIComponent(rawKey) : rawKey;
+      const reEncoded = encodeURIComponent(decoded);
+      const url = `https://apis.data.go.kr/6260000/FestivalService/getFestivalKr?serviceKey=${reEncoded}&pageNo=1&numOfRows=150&resultType=json`;
+      if (!urlVariants.includes(url)) {
+        urlVariants.push(url);
       }
     } catch (e) {}
 
     for (const apiUrl of urlVariants) {
       try {
         const apiResponse = await fetch(apiUrl, {
-          headers: { Accept: 'application/json' },
-          signal: AbortSignal.timeout(6000),
+          headers: {
+            'Accept': 'application/json, text/xml, */*',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+          signal: AbortSignal.timeout(15000),
         });
 
         if (apiResponse.ok) {
           const text = await apiResponse.text();
-          if (text.includes('getFestivalKr') || text.includes('item')) {
+
+          let items: RawFestivalItem[] = [];
+          try {
             const json = JSON.parse(text);
-            const items = json?.getFestivalKr?.item;
-            if (Array.isArray(items) && items.length > 0) {
-              return { items, keyUsed: rawKey };
-            }
+            items = json?.getFestivalKr?.item || [];
+          } catch (e) {
+            items = parseXmlItems(text);
+          }
+
+          if (Array.isArray(items) && items.length > 0) {
+            return { items, keyUsed: rawKey };
           }
         }
       } catch (err) {
